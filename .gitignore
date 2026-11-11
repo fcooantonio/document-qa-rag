@@ -1,3 +1,8 @@
+# Dados e Artefatos do RAG
+data/processed/*.faiss
+data/processed/*.pkl
+data/raw/*.pdf
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
