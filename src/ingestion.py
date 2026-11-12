@@ -9,7 +9,6 @@ class DocumentIngestion:
         self.chunk_overlap = chunk_overlap
 
     def extract_text_from_pdf(self, pdf_path: str) -> List[Dict[str, Any]]:
-        """Lê um PDF e retorna uma lista de dicionários com texto e metadados por página."""
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"Arquivo não encontrado: {pdf_path}")
 
@@ -31,19 +30,18 @@ class DocumentIngestion:
         return pages_content
 
     def chunk_document(self, pages_content: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Aplica segmentação com overlap preservando metadados de página e documento."""
         chunks = []
         chunk_id = 0
 
         for page in pages_content:
             text = page["text"]
             metadata = page["metadata"]
-            
+
             start = 0
             while start < len(text):
                 end = start + self.chunk_size
                 chunk_text = text[start:end]
-                
+
                 chunks.append({
                     "chunk_id": chunk_id,
                     "text": chunk_text,
