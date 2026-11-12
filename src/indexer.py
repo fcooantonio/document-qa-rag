@@ -1,13 +1,22 @@
 import os
+import re
 import pickle
+import unicodedata
 from typing import List, Dict, Any
 import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 
+def _strip_accents(text: str) -> str:
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
 class VectorIndexer:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"):
         self.model_name = model_name
         self.model = SentenceTransformer(model_name)
         self.index = None
@@ -30,7 +39,18 @@ class VectorIndexer:
         self.index = faiss.IndexFlatIP(dimension)
         self.index.add(embeddings)
 
-    def search(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    def _lexical_score(self, query: str, text: str) -> float:
+        stopwords = {"quais", "sao", "como", "para", "com", "dos", "das", "nos", "nas", "que", "uma", "uns", "umas", "por"}
+        q_clean = _strip_accents(query.lower())
+        q_tokens = [w for w in re.findall(r"\w+", q_clean) if len(w) > 2 and w not in stopwords]
+        if not q_tokens:
+            return 0.0
+
+        t_clean = _strip_accents(text.lower())
+        matches = sum(1 for token in q_tokens if token in t_clean)
+        return matches / len(q_tokens)
+
+    def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         if self.index is None:
             raise RuntimeError("Índice FAISS não inicializado.")
 
@@ -38,15 +58,20 @@ class VectorIndexer:
         query_vector = np.ascontiguousarray(query_vector, dtype=np.float32)
         faiss.normalize_L2(query_vector)
 
-        scores, indices = self.index.search(query_vector, top_k)
+        # Busca híbrida: combina similaridade vetorial (75%) + match lexical (25%)
+        total_chunks = len(self.chunks_metadata)
+        scores, indices = self.index.search(query_vector, total_chunks)
 
-        results = []
-        for score, idx in zip(scores[0], indices[0]):
+        candidates = []
+        for sem_score, idx in zip(scores[0], indices[0]):
             if idx != -1:
                 item = self.chunks_metadata[idx].copy()
-                item["similarity_score"] = float(score)
-                results.append(item)
-        return results
+                lex_score = self._lexical_score(query, item["text"])
+                item["similarity_score"] = 0.75 * float(sem_score) + 0.25 * lex_score
+                candidates.append(item)
+
+        candidates.sort(key=lambda x: x["similarity_score"], reverse=True)
+        return candidates[:top_k]
 
     def save(self, output_dir: str = "data/processed") -> None:
         os.makedirs(output_dir, exist_ok=True)
